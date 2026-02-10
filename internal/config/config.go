@@ -15,6 +15,12 @@ type Config struct {
 
 	OTLPEndpoint string
 	OTLPToken    string
+
+	WhisperURL   string
+	WhisperModel string
+
+	LLMURL   string
+	LLMModel string
 }
 
 func Load(envFile string) (*Config, error) {
@@ -27,6 +33,10 @@ func Load(envFile string) (*Config, error) {
 		LogFormat:    getEnv("LOG_FORMAT", "json"),
 		OTLPEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		OTLPToken:    getEnv("OTEL_EXPORTER_OTLP_TOKEN", ""),
+		WhisperURL:   getEnv("WHISPER_URL", "http://192.168.1.217:11435/v1"),
+		WhisperModel: getEnv("WHISPER_MODEL", "Systran/faster-whisper-small"),
+		LLMURL:       getEnv("LLM_URL", "http://192.168.1.217:11434/v1"),
+		LLMModel:     getEnv("LLM_MODEL", "llama3.2:3b"),
 	}
 
 	return config, nil
