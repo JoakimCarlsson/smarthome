@@ -1,0 +1,3 @@
+[submodule "deps/ai"]
+	path = deps/ai
+	url = https://github.com/JoakimCarlsson/ai.git
