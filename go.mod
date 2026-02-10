@@ -5,7 +5,9 @@ go 1.25.6
 replace github.com/joakimcarlsson/ai => ./deps/ai
 
 require (
+	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631
 	github.com/joho/godotenv v1.5.1
+	github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083
 	go.opentelemetry.io/contrib/bridges/otelslog v0.15.0
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.16.0
