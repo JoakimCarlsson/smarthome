@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/joakimcarlsson/smarthome/internal/audio"
 	"github.com/joakimcarlsson/smarthome/internal/config"
 	"github.com/joakimcarlsson/smarthome/internal/otel"
 )
@@ -46,7 +47,25 @@ func main() {
 
 	slog.Info("starting", "service", serviceName, "version", serviceVersion)
 
-	<-ctx.Done()
+	mic, err := audio.New()
+	if err != nil {
+		slog.Error("creating audio capture", "error", err)
+		os.Exit(1)
+	}
+
+	utterances, err := mic.Start(ctx)
+	if err != nil {
+		slog.Error("starting audio capture", "error", err)
+		os.Exit(1)
+	}
+	defer mic.Close()
+
+	slog.Info("listening for speech")
+
+	for pcm := range utterances {
+		durationMs := len(pcm) / (audio.DefaultSampleRate * 2) * 1000
+		slog.Info("utterance captured", "bytes", len(pcm), "duration_ms", durationMs)
+	}
 
 	slog.Info("shutting down")
 }
