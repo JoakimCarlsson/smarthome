@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	aiaudio "github.com/joakimcarlsson/ai/audio"
 	"github.com/joakimcarlsson/ai/message"
 	"github.com/joakimcarlsson/ai/model"
 	llm "github.com/joakimcarlsson/ai/providers"
@@ -98,6 +99,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	ttsClient, err := aiaudio.NewAudioGeneration(
+		model.ProviderElevenLabs,
+		aiaudio.WithAPIKey(cfg.ElevenLabsAPIKey),
+		aiaudio.WithModel(model.ElevenLabsAudioModels[model.ElevenTurboV2_5]),
+	)
+	if err != nil {
+		slog.Error("creating tts client", "error", err)
+		os.Exit(1)
+	}
+
+	speaker, err := audio.NewPlayback()
+	if err != nil {
+		slog.Error("creating audio playback", "error", err)
+		os.Exit(1)
+	}
+	defer speaker.Close()
+
 	conversation := []message.Message{
 		message.NewSystemMessage("You are a helpful smart home assistant. Keep responses concise and conversational."),
 	}
@@ -131,6 +149,7 @@ func main() {
 
 		var reply strings.Builder
 		stream := llmClient.StreamResponse(ctx, conversation, nil)
+
 		for event := range stream {
 			switch event.Type {
 			case types.EventContentDelta:
@@ -142,12 +161,67 @@ func main() {
 		}
 		fmt.Println()
 
-		if reply.Len() > 0 {
-			conversation = append(conversation, message.NewMessage(message.Assistant, []message.ContentPart{
-				message.TextContent{Text: reply.String()},
-			}))
+		replyText := strings.TrimSpace(reply.String())
+		if replyText == "" {
+			continue
 		}
+
+		conversation = append(conversation, message.NewMessage(message.Assistant, []message.ContentPart{
+			message.TextContent{Text: replyText},
+		}))
+
+		speakText(ctx, ttsClient, speaker, cfg.ElevenLabsVoiceID, replyText)
 	}
 
 	slog.Info("shutting down")
+}
+
+func speakText(ctx context.Context, tts aiaudio.AudioGeneration, speaker *audio.Playback, voiceID, text string) {
+	if text == "" {
+		return
+	}
+
+	chunks, err := tts.StreamAudio(ctx, text,
+		aiaudio.WithVoiceID(voiceID),
+		aiaudio.WithOutputFormat("pcm_24000"),
+	)
+	if err != nil {
+		slog.Error("streaming tts", "error", err)
+		return
+	}
+
+	var buf []byte
+	buffered := false
+
+	for chunk := range chunks {
+		if chunk.Error != nil {
+			slog.Error("tts chunk", "error", chunk.Error)
+			return
+		}
+		if chunk.Done {
+			break
+		}
+
+		buf = append(buf, chunk.Data...)
+
+		if !buffered && len(buf) < 16384 {
+			continue
+		}
+		buffered = true
+
+		if err := speaker.Play(buf); err != nil {
+			slog.Error("playing audio", "error", err)
+			return
+		}
+		buf = buf[:0]
+	}
+
+	if len(buf) > 0 {
+		if err := speaker.Play(buf); err != nil {
+			slog.Error("playing audio", "error", err)
+		}
+	}
+	if err := speaker.Flush(); err != nil {
+		slog.Error("flushing audio", "error", err)
+	}
 }
