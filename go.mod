@@ -6,6 +6,7 @@ replace github.com/joakimcarlsson/ai => ./deps/ai
 
 require (
 	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631
+	github.com/gorilla/websocket v1.5.3
 	github.com/joakimcarlsson/ai v0.0.0-00010101000000-000000000000
 	github.com/joho/godotenv v1.5.1
 	github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083
@@ -57,7 +58,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.7 // indirect
 	github.com/googleapis/gax-go/v2 v2.15.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/modelcontextprotocol/go-sdk v1.1.0 // indirect
