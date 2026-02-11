@@ -4,7 +4,7 @@ const (
 	DefaultSampleRate      = 16000
 	DefaultFrameDurationMs = 30
 	DefaultVADMode         = 3
-	DefaultSilenceFrames   = 20
+	DefaultSilenceFrames   = 35
 	DefaultPreBufferFrames = 8
 )
 

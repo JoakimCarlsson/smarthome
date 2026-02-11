@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,7 +11,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/joakimcarlsson/ai/message"
+	"github.com/joakimcarlsson/ai/agent"
 	"github.com/joakimcarlsson/ai/model"
 	llm "github.com/joakimcarlsson/ai/providers"
 	"github.com/joakimcarlsson/ai/transcription"
@@ -18,6 +19,7 @@ import (
 	"github.com/joakimcarlsson/smarthome/internal/audio"
 	"github.com/joakimcarlsson/smarthome/internal/config"
 	"github.com/joakimcarlsson/smarthome/internal/otel"
+	"github.com/joakimcarlsson/smarthome/internal/tools"
 	"github.com/joakimcarlsson/smarthome/internal/tts"
 )
 
@@ -25,6 +27,9 @@ const (
 	serviceName    = "smarthome"
 	serviceVersion = "0.1.0"
 )
+
+//go:embed prompts/system.md
+var systemPrompt string
 
 func main() {
 	cfg, err := config.Load(".env")
@@ -99,6 +104,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// webSearchTool := tools.NewWebSearchTool(cfg.SerpAPIKey)
+	// res, err := webSearchTool.Run(ctx, tool.ToolCall{
+	// 	Input: "What is the capital of France?",
+	// 	Name:  "web_search",
+	// 	ID:    "123",
+	// })
+	// if err != nil {
+	// 	slog.Error("running web search tool", "error", err)
+	// 	os.Exit(1)
+	// }
+	// fmt.Println(res.Content)
+
+	myAgent := agent.New(llmClient,
+		agent.WithSystemPrompt(systemPrompt),
+		agent.WithTools(tools.NewWebSearchTool(cfg.SerpAPIKey)),
+	)
+
 	speaker, err := audio.NewPlayback()
 	if err != nil {
 		slog.Error("creating audio playback", "error", err)
@@ -106,8 +128,14 @@ func main() {
 	}
 	defer speaker.Close()
 
-	conversation := []message.Message{
-		message.NewSystemMessage("You are a helpful smart home assistant. Keep responses concise and conversational."),
+	ttsConfig := tts.SessionConfig{
+		APIKey:       cfg.ElevenLabsAPIKey,
+		VoiceID:      cfg.ElevenLabsVoiceID,
+		ModelID:      cfg.ElevenLabsModel,
+		OutputFormat: "pcm_24000",
+		Stability:    cfg.ElevenLabsStability,
+		Similarity:   cfg.ElevenLabsSimilarity,
+		Speed:        cfg.ElevenLabsSpeed,
 	}
 
 	slog.Info("listening for speech",
@@ -119,35 +147,41 @@ func main() {
 	for pcm := range utterances {
 		wav := audio.EncodeWAV(pcm, audio.DefaultSampleRate, 1, 16)
 
+		var wsSession *tts.Session
+		var wsErr error
+		wsDone := make(chan struct{})
+		go func() {
+			wsSession, wsErr = tts.NewSession(ctx, ttsConfig)
+			close(wsDone)
+		}()
+
 		resp, err := stt.Transcribe(ctx, wav,
 			transcription.WithLanguage("sv"),
 			transcription.WithFilename("audio.wav"),
 		)
 		if err != nil {
 			slog.Error("transcribing", "error", err)
+			<-wsDone
+			if wsSession != nil {
+				wsSession.Close()
+			}
 			continue
 		}
 
 		text := strings.TrimSpace(resp.Text)
 		if text == "" {
+			<-wsDone
+			if wsSession != nil {
+				wsSession.Close()
+			}
 			continue
 		}
 
 		slog.Info("transcribed", "text", text)
 
-		conversation = append(conversation, message.NewUserMessage(text))
-
-		wsSession, err := tts.NewSession(ctx, tts.SessionConfig{
-			APIKey:       cfg.ElevenLabsAPIKey,
-			VoiceID:      cfg.ElevenLabsVoiceID,
-			ModelID:      cfg.ElevenLabsModel,
-			OutputFormat: "pcm_24000",
-			Stability:    cfg.ElevenLabsStability,
-			Similarity:   cfg.ElevenLabsSimilarity,
-			Speed:        cfg.ElevenLabsSpeed,
-		})
-		if err != nil {
-			slog.Error("creating ws session", "error", err)
+		<-wsDone
+		if wsErr != nil {
+			slog.Error("creating ws session", "error", wsErr)
 			continue
 		}
 
@@ -173,19 +207,15 @@ func main() {
 			}
 		}()
 
-		var reply strings.Builder
-		stream := llmClient.StreamResponse(ctx, conversation, nil)
-
-		for event := range stream {
+		for event := range myAgent.ChatStream(ctx, text) {
 			switch event.Type {
 			case types.EventContentDelta:
 				fmt.Print(event.Content)
-				reply.WriteString(event.Content)
 				if err := wsSession.SendText(event.Content); err != nil {
 					slog.Error("sending text to tts", "error", err)
 				}
 			case types.EventError:
-				slog.Error("llm stream", "error", event.Error)
+				slog.Error("agent stream", "error", event.Error)
 			}
 		}
 		fmt.Println()
@@ -195,13 +225,6 @@ func main() {
 		}
 		wg.Wait()
 		wsSession.Close()
-
-		replyText := strings.TrimSpace(reply.String())
-		if replyText != "" {
-			conversation = append(conversation, message.NewMessage(message.Assistant, []message.ContentPart{
-				message.TextContent{Text: replyText},
-			}))
-		}
 	}
 
 	slog.Info("shutting down")
