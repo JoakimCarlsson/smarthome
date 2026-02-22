@@ -16,13 +16,13 @@ type Config struct {
 	OTLPEndpoint string
 	OTLPToken    string
 
-	WhisperURL   string
-	WhisperModel string
+	OpenAIAPIKey string
 
-	LLMURL   string
-	LLMModel string
+	AnthropicAPIKey string
 
 	SerpAPIKey string
+
+	PicovoiceAccessKey string
 
 	ElevenLabsAPIKey     string
 	ElevenLabsVoiceID    string
@@ -42,19 +42,20 @@ func Load(envFile string) (*Config, error) {
 		LogFormat:    getEnv("LOG_FORMAT", "json"),
 		OTLPEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		OTLPToken:    getEnv("OTEL_EXPORTER_OTLP_TOKEN", ""),
-		WhisperURL:   getEnv("WHISPER_URL", "http://192.168.1.217:11435/v1"),
-		WhisperModel: getEnv("WHISPER_MODEL", "Systran/faster-whisper-small"),
-		LLMURL:       getEnv("LLM_URL", "http://192.168.1.217:11434/v1"),
-		LLMModel:     getEnv("LLM_MODEL", "llama3.1:8b"),
+		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 
-		SerpAPIKey: getEnv("SERPAPI_KEY", "93fe03cfe5fa6a905de6f93d8436f2f748cedad7726a7b24d858ce9ec6c3cb6d"),
+		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 
-		ElevenLabsAPIKey:     getEnv("ELEVENLABS_API_KEY", "sk_0f2a7a7c78e35688600cdcf6bc5b6c64516d23dd0b599443"),
-		ElevenLabsVoiceID:    getEnv("ELEVENLABS_VOICE_ID", "2ajXGJNYBR0iNHpS4VZb"),
+		SerpAPIKey: getEnv("SERPAPI_KEY", ""),
+
+		PicovoiceAccessKey: getEnv("PICOVOICE_ACCESS_KEY", ""),
+
+		ElevenLabsAPIKey:     getEnv("ELEVENLABS_API_KEY", ""),
+		ElevenLabsVoiceID:    getEnv("ELEVENLABS_VOICE_ID", "aSLKtNoVBZlxQEMsnGL2"),
 		ElevenLabsModel:      getEnv("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
 		ElevenLabsStability:  getEnvAsFloat("ELEVENLABS_STABILITY", 0.5),
 		ElevenLabsSimilarity: getEnvAsFloat("ELEVENLABS_SIMILARITY", 0.8),
-		ElevenLabsSpeed:      getEnvAsFloat("ELEVENLABS_SPEED", 1.0),
+		ElevenLabsSpeed:      getEnvAsFloat("ELEVENLABS_SPEED", 1.20),
 	}
 
 	return config, nil

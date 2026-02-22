@@ -4,8 +4,9 @@ const (
 	DefaultSampleRate      = 16000
 	DefaultFrameDurationMs = 30
 	DefaultVADMode         = 3
-	DefaultSilenceFrames   = 35
+	DefaultSilenceFrames   = 15
 	DefaultPreBufferFrames = 8
+	DefaultMinActiveFrames = 3
 )
 
 type options struct {
@@ -14,6 +15,10 @@ type options struct {
 	vadMode         int
 	silenceFrames   int
 	preBufferFrames int
+	minActiveFrames int
+
+	wakeWordAccessKey string
+	wakeWordModelPath string
 }
 
 type Option func(*options)
@@ -48,6 +53,19 @@ func WithPreBufferFrames(n int) Option {
 	}
 }
 
+func WithMinActiveFrames(n int) Option {
+	return func(o *options) {
+		o.minActiveFrames = n
+	}
+}
+
+func WithWakeWord(accessKey, modelPath string) Option {
+	return func(o *options) {
+		o.wakeWordAccessKey = accessKey
+		o.wakeWordModelPath = modelPath
+	}
+}
+
 func defaultOptions() options {
 	return options{
 		sampleRate:      DefaultSampleRate,
@@ -55,5 +73,6 @@ func defaultOptions() options {
 		vadMode:         DefaultVADMode,
 		silenceFrames:   DefaultSilenceFrames,
 		preBufferFrames: DefaultPreBufferFrames,
+		minActiveFrames: DefaultMinActiveFrames,
 	}
 }

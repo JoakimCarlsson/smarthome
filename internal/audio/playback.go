@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gordonklaus/portaudio"
 )
@@ -15,9 +16,11 @@ type Playback struct {
 	frameBuf  []int16
 	frameSize int
 	pending   []byte
+	aec       *EchoCanceller
+	speaking  atomic.Bool
 }
 
-func NewPlayback() (*Playback, error) {
+func NewPlayback(aec *EchoCanceller) (*Playback, error) {
 	frameSize := PlaybackSampleRate / 10
 	buf := make([]int16, frameSize)
 
@@ -35,10 +38,16 @@ func NewPlayback() (*Playback, error) {
 		stream:    stream,
 		frameBuf:  buf,
 		frameSize: frameSize,
+		aec:       aec,
 	}, nil
 }
 
+func (p *Playback) Speaking() bool {
+	return p.speaking.Load()
+}
+
 func (p *Playback) Play(data []byte) error {
+	p.speaking.Store(true)
 	p.pending = append(p.pending, data...)
 	frameSizeBytes := p.frameSize * 2
 
@@ -47,6 +56,11 @@ func (p *Playback) Play(data []byte) error {
 			p.frameBuf[i] = int16(binary.LittleEndian.Uint16(p.pending[i*2:]))
 		}
 		p.pending = p.pending[frameSizeBytes:]
+
+		if p.aec != nil {
+			resampled := Resample24to16(p.frameBuf)
+			p.aec.FeedReference(resampled)
+		}
 
 		if err := p.stream.Write(); err != nil {
 			if !strings.Contains(err.Error(), "Output underflowed") {
@@ -59,6 +73,7 @@ func (p *Playback) Play(data []byte) error {
 }
 
 func (p *Playback) Flush() error {
+	defer p.speaking.Store(false)
 	if len(p.pending) < 2 {
 		p.pending = p.pending[:0]
 		return nil
@@ -73,6 +88,11 @@ func (p *Playback) Flush() error {
 	}
 	p.pending = p.pending[:0]
 
+	if p.aec != nil {
+		resampled := Resample24to16(p.frameBuf)
+		p.aec.FeedReference(resampled)
+	}
+
 	if err := p.stream.Write(); err != nil {
 		if !strings.Contains(err.Error(), "Output underflowed") {
 			return fmt.Errorf("writing playback stream: %w", err)
@@ -80,6 +100,11 @@ func (p *Playback) Flush() error {
 	}
 
 	return nil
+}
+
+func (p *Playback) Reset() {
+	p.pending = p.pending[:0]
+	p.speaking.Store(false)
 }
 
 func (p *Playback) Close() error {
