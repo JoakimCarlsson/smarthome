@@ -64,10 +64,11 @@ type wakeWordProc struct {
 }
 
 type Capture struct {
-	opts   options
-	vad    *webrtcvad.VAD
-	stream *portaudio.Stream
-	aec    *EchoCanceller
+	opts       options
+	vad        *webrtcvad.VAD
+	stream     *portaudio.Stream
+	aec        *EchoCanceller
+	wakeWordCh chan struct{}
 }
 
 func New(aec *EchoCanceller, opts ...Option) (*Capture, error) {
@@ -124,8 +125,15 @@ func (c *Capture) Start(ctx context.Context) (<-chan []byte, error) {
 	}
 
 	ch := make(chan []byte, 4)
+	if c.opts.wakeWordAccessKey != "" && c.opts.wakeWordModelPath != "" {
+		c.wakeWordCh = make(chan struct{}, 1)
+	}
 	go c.captureLoop(ctx, buf, ch)
 	return ch, nil
+}
+
+func (c *Capture) WakeWordEvents() <-chan struct{} {
+	return c.wakeWordCh
 }
 
 func (c *Capture) Close() error {
@@ -292,6 +300,12 @@ func (c *Capture) captureLoop(ctx context.Context, buf []int16, ch chan<- []byte
 						awake = true
 						ww.kill()
 						ww = nil
+						if c.wakeWordCh != nil {
+							select {
+							case c.wakeWordCh <- struct{}{}:
+							default:
+							}
+						}
 						continue
 					}
 				default:
@@ -321,6 +335,12 @@ func (c *Capture) captureLoop(ctx context.Context, buf []int16, ch chan<- []byte
 					awake = true
 					ww.kill()
 					ww = nil
+					if c.wakeWordCh != nil {
+						select {
+						case c.wakeWordCh <- struct{}{}:
+						default:
+						}
+					}
 				}
 			default:
 			}

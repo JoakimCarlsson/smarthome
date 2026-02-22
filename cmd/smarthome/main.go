@@ -101,7 +101,7 @@ func main() {
 	stt, err := transcription.NewSpeechToText(
 		model.ProviderOpenAI,
 		transcription.WithAPIKey(cfg.OpenAIAPIKey),
-		transcription.WithModel(model.OpenAITranscriptionModels[model.Whisper1]),
+		transcription.WithModel(model.OpenAITranscriptionModels[model.GPT4oMiniTranscribe]),
 	)
 	if err != nil {
 		slog.Error("creating stt client", "error", err)
@@ -149,7 +149,7 @@ func main() {
 	}
 
 	slog.Info("listening for speech",
-		"stt", "openai/whisper-1",
+		"stt", "openai/gpt-4o-mini-transcribe",
 		"llm", "anthropic/claude-4.5-haiku",
 	)
 
@@ -157,53 +157,78 @@ func main() {
 	var currentDone chan struct{}
 	processing := false
 
-	go func() {
-		for {
+	wakeWordEvents := mic.WakeWordEvents()
+
+loop:
+	for {
+		// If something is currently processing, wait for it to finish or for an interrupt.
+		for processing {
 			select {
 			case <-ctx.Done():
-				return
+				break loop
 			case <-currentDone:
 				processing = false
+			case <-wakeWordEvents:
+				cancelCurrent()
+				<-currentDone
+				speaker.Reset()
+				slog.Info("wake word greeting")
+				utterCtx, utterCancel := context.WithCancel(ctx)
+				cancelCurrent = utterCancel
+				currentDone = make(chan struct{})
+				go processUtterance(utterCtx, currentDone, "Sho bror", stt, myAgent, speaker, ttsConfig)
+			case pcm, ok := <-utterances:
+				if !ok {
+					break loop
+				}
+				wav := audio.EncodeWAV(pcm, audio.DefaultSampleRate, 1, 16)
+				resp, err := stt.Transcribe(ctx, wav,
+					transcription.WithLanguage("sv"),
+					transcription.WithFilename("audio.wav"),
+					transcription.WithPrompt("Smarthome, Bälstaberg, Vallentuna, Sverige."),
+					transcription.WithResponseFormat("json"),
+				)
+				if err != nil {
+					slog.Debug("barge-in STT failed, ignoring", "error", err)
+					continue
+				}
+				text := strings.TrimSpace(resp.Text)
+				if text == "" || isHallucination(resp) {
+					slog.Debug("discarding non-speech interrupt")
+					continue
+				}
+				slog.Info("barge-in confirmed", "text", text)
+				cancelCurrent()
+				<-currentDone
+				speaker.Reset()
+				utterCtx, utterCancel := context.WithCancel(ctx)
+				cancelCurrent = utterCancel
+				currentDone = make(chan struct{})
+				go processUtterance(utterCtx, currentDone, text, stt, myAgent, speaker, ttsConfig)
 			}
 		}
-	}()
 
-	for pcm := range utterances {
-		if processing {
-			wav := audio.EncodeWAV(pcm, audio.DefaultSampleRate, 1, 16)
-			resp, err := stt.Transcribe(ctx, wav,
-				transcription.WithLanguage("sv"),
-				transcription.WithFilename("audio.wav"),
-			)
-			if err != nil {
-				slog.Debug("barge-in STT failed, ignoring", "error", err)
-				continue
-			}
-			text := strings.TrimSpace(resp.Text)
-			if text == "" || isHallucination(resp) {
-				slog.Debug("discarding non-speech interrupt")
-				continue
-			}
-			slog.Info("barge-in confirmed", "text", text)
-			cancelCurrent()
-			<-currentDone
-			speaker.Reset()
-
+		// Idle — wait for wake word or utterance.
+		select {
+		case <-ctx.Done():
+			break loop
+		case <-wakeWordEvents:
+			slog.Info("wake word greeting")
 			utterCtx, utterCancel := context.WithCancel(ctx)
 			cancelCurrent = utterCancel
 			currentDone = make(chan struct{})
 			processing = true
-
-			go processUtterance(utterCtx, currentDone, text, stt, myAgent, speaker, ttsConfig)
-			continue
+			go processUtterance(utterCtx, currentDone, "Sho bror", stt, myAgent, speaker, ttsConfig)
+		case pcm, ok := <-utterances:
+			if !ok {
+				break loop
+			}
+			utterCtx, utterCancel := context.WithCancel(ctx)
+			cancelCurrent = utterCancel
+			currentDone = make(chan struct{})
+			processing = true
+			go processUtterance(utterCtx, currentDone, "", stt, myAgent, speaker, ttsConfig, pcm)
 		}
-
-		utterCtx, utterCancel := context.WithCancel(ctx)
-		cancelCurrent = utterCancel
-		currentDone = make(chan struct{})
-		processing = true
-
-		go processUtterance(utterCtx, currentDone, "", stt, myAgent, speaker, ttsConfig, pcm)
 	}
 
 	if cancelCurrent != nil {
@@ -227,6 +252,9 @@ func processUtterance(
 	defer close(done)
 
 	text := preTranscribed
+	if text != "" {
+		slog.Info("processing pre-transcribed", "text", text)
+	}
 
 	var wsSession *tts.Session
 	var wsErr error
@@ -242,6 +270,8 @@ func processUtterance(
 		resp, err := stt.Transcribe(ctx, wav,
 			transcription.WithLanguage("sv"),
 			transcription.WithFilename("audio.wav"),
+			transcription.WithPrompt("Smarthome, Bälstaberg, Vallentuna, Sverige."),
+			transcription.WithResponseFormat("json"),
 		)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -280,6 +310,7 @@ func processUtterance(
 		}
 		return
 	}
+	slog.Info("tts session ready, sending to agent", "text", text)
 	defer wsSession.Close()
 
 	var wg sync.WaitGroup
