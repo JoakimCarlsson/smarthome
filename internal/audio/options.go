@@ -1,5 +1,7 @@
 package audio
 
+import "time"
+
 const (
 	DefaultSampleRate      = 16000
 	DefaultFrameDurationMs = 30
@@ -10,12 +12,13 @@ const (
 )
 
 type options struct {
-	sampleRate      int
-	frameDurationMs int
-	vadMode         int
-	silenceFrames   int
-	preBufferFrames int
-	minActiveFrames int
+	sampleRate           int
+	frameDurationMs      int
+	vadMode              int
+	silenceFrames        int
+	preBufferFrames      int
+	minActiveFrames      int
+	postUtteranceTimeout time.Duration
 
 	wakeWordAccessKey string
 	wakeWordModelPath string
@@ -66,13 +69,20 @@ func WithWakeWord(accessKey, modelPath string) Option {
 	}
 }
 
+func WithPostUtteranceTimeout(d time.Duration) Option {
+	return func(o *options) {
+		o.postUtteranceTimeout = d
+	}
+}
+
 func defaultOptions() options {
 	return options{
-		sampleRate:      DefaultSampleRate,
-		frameDurationMs: DefaultFrameDurationMs,
-		vadMode:         DefaultVADMode,
-		silenceFrames:   DefaultSilenceFrames,
-		preBufferFrames: DefaultPreBufferFrames,
-		minActiveFrames: DefaultMinActiveFrames,
+		sampleRate:           DefaultSampleRate,
+		frameDurationMs:      DefaultFrameDurationMs,
+		vadMode:              DefaultVADMode,
+		silenceFrames:        DefaultSilenceFrames,
+		preBufferFrames:      DefaultPreBufferFrames,
+		minActiveFrames:      DefaultMinActiveFrames,
+		postUtteranceTimeout: 60 * time.Second,
 	}
 }

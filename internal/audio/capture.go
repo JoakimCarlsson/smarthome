@@ -226,6 +226,7 @@ func (c *Capture) captureLoop(ctx context.Context, buf []int16, ch chan<- []byte
 	activeCount := 0
 	speaking := false
 	awake := !useWakeWord
+	var awakeExpiry time.Time
 
 	var ww *wakeWordProc
 	var wwDetected chan bool
@@ -258,6 +259,26 @@ func (c *Capture) captureLoop(ctx context.Context, buf []int16, ch chan<- []byte
 
 		if err := c.stream.Read(); err != nil {
 			slog.Error("reading audio stream", "error", err)
+			continue
+		}
+
+		if awake && !speaking && useWakeWord && !awakeExpiry.IsZero() && time.Now().After(awakeExpiry) {
+			awakeExpiry = time.Time{}
+			awake = false
+			var err error
+			ww, err = c.startWakeWordProcess()
+			if err != nil {
+				slog.Error("restarting wake word process", "error", err)
+				return
+			}
+			wwDetected = make(chan bool, 1)
+			go func() {
+				if ww.stdout.Scan() && ww.stdout.Text() == "WAKE" {
+					wwDetected <- true
+				} else {
+					wwDetected <- false
+				}
+			}()
 			continue
 		}
 
@@ -355,21 +376,7 @@ func (c *Capture) captureLoop(ctx context.Context, buf []int16, ch chan<- []byte
 					silenceCount = 0
 					activeCount = 0
 					if useWakeWord {
-						awake = false
-						var err error
-						ww, err = c.startWakeWordProcess()
-						if err != nil {
-							slog.Error("restarting wake word process", "error", err)
-							return
-						}
-						wwDetected = make(chan bool, 1)
-						go func() {
-							if ww.stdout.Scan() && ww.stdout.Text() == "WAKE" {
-								wwDetected <- true
-							} else {
-								wwDetected <- false
-							}
-						}()
+						awakeExpiry = time.Now().Add(c.opts.postUtteranceTimeout)
 					}
 				}
 			}

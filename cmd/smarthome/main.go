@@ -10,9 +10,11 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/joakimcarlsson/ai/agent"
 	"github.com/joakimcarlsson/ai/model"
+	"github.com/joakimcarlsson/ai/prompt"
 	llm "github.com/joakimcarlsson/ai/providers"
 	"github.com/joakimcarlsson/ai/transcription"
 	"github.com/joakimcarlsson/ai/types"
@@ -116,8 +118,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	renderedPrompt, err := prompt.Process(systemPrompt, map[string]any{
+		"Today": time.Now().Format("2 January 2006"),
+	})
+	if err != nil {
+		slog.Error("rendering system prompt", "error", err)
+		os.Exit(1)
+	}
+
 	myAgent := agent.New(llmClient,
-		agent.WithSystemPrompt(systemPrompt),
+		agent.WithSystemPrompt(renderedPrompt),
 		agent.WithTools(tools.NewWebSearchTool(cfg.SerpAPIKey)),
 	)
 
